@@ -1,5 +1,6 @@
 import shlex
 import socket
+import sys
 
 from data_layer import check_args, print_rows
 from proto import OPCODES, encode_request, recv_response, send_request
@@ -153,5 +154,62 @@ def show_spec() -> None:
     print("  тело:", data[6:])
 
 
+def demo() -> None:
+    """Вызывает удалённо все функции модели слоя данных."""
+    print("=" * 60)
+    print("КЛИЕНТ RPC: УДАЛЁННЫЙ ВЫЗОВ ФУНКЦИЙ МОДЕЛИ")
+    print("=" * 60)
+    show_spec()
+
+    client = RpcClient()
+
+    print("Создание записей")
+    first = client.create_user()
+    second = client.create_user()
+    print_rows("create_user", [first, second])
+    message = client.create_message(first["key"], "Привет по RPC",
+                                    "Описание", "news", "new")
+    print_rows("create_message", [message])
+    result = client.create_result(message["key"], "Принято", "final", "")
+    print_rows("create_result", [result])
+
+    print("Чтение всех записей")
+    print_rows("get_all_users", client.get_all_users())
+    print_rows("get_all_messages", client.get_all_messages())
+    print_rows("get_all_results", client.get_all_results())
+
+    print("Операция соединения")
+    print_rows("join", client.join())
+
+    print("Обработка ошибок сервера")
+    cases = [
+        ("нет пользователя",
+         lambda: client.create_message(99, "arg", "desc", "tags", "new")),
+        ("удаление отсутствующей записи",
+         lambda: client.delete_user(99)),
+    ]
+    for title, action in cases:
+        try:
+            action()
+        except ValueError as error:
+            print(f"    {title}: {error}")
+
+    print("Удаление записей")
+    print_rows("delete_result", [client.delete_result(result["key"])])
+    print_rows("delete_message", [client.delete_message(message["key"])])
+    print_rows("delete_user", [client.delete_user(second["key"])])
+    print_rows("get_all_users", client.get_all_users())
+    client.close()
+
+
+def main() -> int:
+    """Запускает демонстрацию или интерактивный режим."""
+    if "--demo" in sys.argv:
+        demo()
+    else:
+        repl()
+    return 0
+
+
 if __name__ == "__main__":
-    repl()
+    raise SystemExit(main())
