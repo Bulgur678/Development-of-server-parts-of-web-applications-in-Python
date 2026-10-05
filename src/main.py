@@ -1,202 +1,342 @@
+"""Слой доступа к данным (этап 1).
+
+Каждая таблица хранится в памяти списком словарей: один словарь —
+одна запись, поля словаря соответствуют полям ER-диаграммы.
+
+    user     key, datetime
+    message  key, datetime, arg, user, description, tags, stage
+    result   key, datetime, result, stage, error, message
+"""
+
+import shlex
 import time
-import os
-from typing import Any
-from types import NoneType
 
-user = {}
-message = {}
-result = {}
+# Таблицы в памяти.
+users: list[dict] = []
+messages: list[dict] = []
+results: list[dict] = []
 
-SCHEMA: dict[str, dict[str, type | tuple[type, ...]]] = {
-    "user": {"key": int, "datetime": (int, NoneType)},
-    "message": {
-        "key": int,
-        "datetime": (int, NoneType),
-        "arg": str,
-        "user": int,
-        "description": str,
-        "tags": str,
-        "stage": str,
-    },
-    "result": {
-        "key": int,
-        "datetime": (int, NoneType),
-        "result": str,
-        "stage": str,
-        "error": str,
-        "message": int,
-    },
+
+# --------------------------------------------------------------------------
+# Общие помощники
+# --------------------------------------------------------------------------
+
+
+def now() -> int:
+    """Возвращает текущее время в секундах."""
+    return int(time.time())
+
+
+def get_next_key(table: list[dict]) -> int:
+    """Возвращает ключ для новой записи таблицы."""
+    if not table:
+        return 0
+    return max(row["key"] for row in table) + 1
+
+
+def get_row(table: list[dict], key, name: str) -> dict:
+    """Возвращает запись таблицы по ключу."""
+    for row in table:
+        if row["key"] == int(key):
+            return row
+    raise ValueError(f"В таблице '{name}' нет записи с key={key}")
+
+
+def print_rows(title: str, rows: list[dict]) -> None:
+    """Печатает заголовок и список записей."""
+    print(f"--- {title} ({len(rows)}) ---")
+    for row in rows:
+        print("   ", row)
+    if not rows:
+        print("    (пусто)")
+
+
+# --------------------------------------------------------------------------
+# Таблица user
+# --------------------------------------------------------------------------
+
+
+def create_user() -> dict:
+    """Создаёт запись в таблице user."""
+    user = {
+        "key": get_next_key(users),
+        "datetime": now(),
+    }
+    users.append(user)
+    return user
+
+
+def delete_user(key) -> dict:
+    """Удаляет запись из таблицы user."""
+    row = get_row(users, key, "user")
+    users.remove(row)
+    return row
+
+
+def get_all_users() -> list[dict]:
+    """Возвращает все записи таблицы user."""
+    return users
+
+
+# --------------------------------------------------------------------------
+# Таблица message
+# --------------------------------------------------------------------------
+
+
+def create_message(user, arg, description="", tags="", stage="") -> dict:
+    """Создаёт запись в таблице message для указанного пользователя."""
+    owner = get_row(users, user, "user")
+    message = {
+        "key": get_next_key(messages),
+        "datetime": now(),
+        "arg": arg,
+        "user": owner["key"],
+        "description": description,
+        "tags": tags,
+        "stage": stage,
+    }
+    messages.append(message)
+    return message
+
+
+def delete_message(key) -> dict:
+    """Удаляет запись из таблицы message."""
+    row = get_row(messages, key, "message")
+    messages.remove(row)
+    return row
+
+
+def get_all_messages() -> list[dict]:
+    """Возвращает все записи таблицы message."""
+    return messages
+
+
+# --------------------------------------------------------------------------
+# Таблица result
+# --------------------------------------------------------------------------
+
+
+def create_result(message, result="", stage="", error="") -> dict:
+    """Создаёт запись в таблице result для указанного сообщения."""
+    source = get_row(messages, message, "message")
+    row = {
+        "key": get_next_key(results),
+        "datetime": now(),
+        "result": result,
+        "stage": stage,
+        "error": error,
+        "message": source["key"],
+    }
+    results.append(row)
+    return row
+
+
+def delete_result(key) -> dict:
+    """Удаляет запись из таблицы result."""
+    row = get_row(results, key, "result")
+    results.remove(row)
+    return row
+
+
+def get_all_results() -> list[dict]:
+    """Возвращает все записи таблицы result."""
+    return results
+
+
+# --------------------------------------------------------------------------
+# Операция соединения
+# --------------------------------------------------------------------------
+
+
+def join(minutes: int = 7) -> list[dict]:
+    """Выборка: pi M.tags, R.error, R.result
+    (sigma M.datetime >= now - 7 min (M join M.key = R.message R)).
+    """
+    threshold = now() - minutes * 60
+    rows = []
+    for message in messages:
+        if message["datetime"] < threshold:
+            continue
+        for result in results:
+            if result["message"] == message["key"]:
+                rows.append({
+                    "tags": message["tags"],
+                    "error": result["error"],
+                    "result": result["result"],
+                })
+    return rows
+
+
+# Операции таблиц для команд REPL.
+TABLES = {
+    "user": {"get_all": get_all_users, "delete": delete_user},
+    "message": {"get_all": get_all_messages, "delete": delete_message},
+    "result": {"get_all": get_all_results, "delete": delete_result},
 }
 
 
-def get_table_name(table: str) -> str | None:
-    if table is user:
-        return "user"
-    elif table is message:
-        return "message"
-    elif table is result:
-        return "result"
-    else:
-        raise KeyError(f"Таблицы {table} не существует")
+def get_ops(name: str) -> dict:
+    """Возвращает операции таблицы по её имени."""
+    if name not in TABLES:
+        raise ValueError(
+            f"Неизвестная таблица '{name}'. Доступны: {', '.join(TABLES)}"
+        )
+    return TABLES[name]
 
 
-def validate_kwargs(table_name: str, **kwargs: Any) -> None:
-    """Проверяет передаваемые аргументы по схеме таблицы."""
+# --------------------------------------------------------------------------
+# REPL
+# --------------------------------------------------------------------------
 
-    if table_name not in SCHEMA:
-        raise ValueError(f"Таблица '{table_name}' отсутствует в SCHEMA.")
+HELP = """Команды:
+  show <table>                                       все записи таблицы
+  create_user                                        новый пользователь
+  create_message <user> <arg> <desc> <tags> <stage>  новое сообщение
+  create_result <message> <result> <stage> <error>   новый результат
+  delete <table> <key>                               удалить запись
+  join [minutes]                                     операция соединения
+  demo                                               загрузить пример данных
+  help                                               эта справка
+  quit                                               выход
 
-    table_schema = SCHEMA[table_name]
-
-    for key, value in kwargs.items():
-        # Проверяем, существует ли такое поле в таблице
-        if key not in table_schema:
-            raise KeyError(
-                f"Поле '{key}' не существует в таблице '{table_name}' {SCHEMA[table_name]}"
-            )
-
-        expected_type = table_schema[key]
-
-        # Проверяем тип данных
-        if not isinstance(value, expected_type):
-            raise TypeError(
-                f"В таблице '{table_name}' для поля '{key}' ожидался тип {expected_type}, но получен {type(value).__name__} ({value!r})."
-            )
+Таблицы: user, message, result.
+Значения с пробелами берите в кавычках:
+  create_message 0 "Привет мир" "Описание" news new"""
 
 
-def parsing(kwargs: dict) -> dict:
-    for key, value in kwargs.items():
-        if isinstance(value, str) and value.isdigit():
-            kwargs[key] = int(value)
-    return kwargs
+def check_args(args: list[str], count: int, usage: str) -> None:
+    """Проверяет количество аргументов команды."""
+    if len(args) != count:
+        raise ValueError(
+            f"Ожидалось {count} аргументов. Использование: {usage}"
+        )
 
 
-def create_table(table: str, **kwargs: dict) -> None:
-    """Универсальный конструктор таблиц"""
+def run_command(line: str) -> bool:
+    """Выполняет команду. Возвращает False, если пора выходить."""
+    try:
+        parts = shlex.split(line)
+        if not parts:
+            return True
+        command, args = parts[0], parts[1:]
 
-    table_name = get_table_name(table)
-
-    kwargs = parsing(kwargs)
-
-    validate_kwargs(table_name, **kwargs)
-
-    if "key" not in kwargs:
-        raise KeyError(f"Отсутвует индекс key = ")
-
-    key_index = kwargs["key"]
-    if key_index in table:
-        raise ValueError(f"Индекс {kwargs[key_index]} уже существует")
-
-    if "datetime" not in kwargs:
-        kwargs["datetime"] = int(time.time())
-
-    return_table = {}
-
-    for schema_table_key in SCHEMA[table_name].keys():
-        # Создаем таблицы
-
-        if schema_table_key in kwargs:
-            if (
-                schema_table_key in SCHEMA
-                and kwargs[schema_table_key] is int
-                and kwargs[schema_table_key] not in globals()[schema_table_key]
-            ):
-                raise ValueError(
-                    f"Невозможно добавить объект из таблицы {schema_table_key} с индексом {kwargs[schema_table_key]} в таблицу {table_name}"
-                )
-
-            return_table[schema_table_key] = kwargs[schema_table_key]
-        else:
-            return_table[schema_table_key] = None
-
-    table[kwargs["key"]] = return_table
-
-
-def delete_table(table: dict, key: int) -> None:
-    table.pop(key)
+        match command:
+            case "quit" | "exit":
+                return False
+            case "help":
+                print(HELP)
+            case "show":
+                check_args(args, 1, "show <table>")
+                print_rows(args[0], get_ops(args[0])["get_all"]())
+            case "create_user":
+                check_args(args, 0, "create_user")
+                print("создано:", create_user())
+            case "create_message":
+                usage = "create_message <user> <arg> <desc> <tags> <stage>"
+                check_args(args, 5, usage)
+                print("создано:", create_message(*args))
+            case "create_result":
+                usage = "create_result <message> <result> <stage> <error>"
+                check_args(args, 4, usage)
+                print("создано:", create_result(*args))
+            case "delete":
+                check_args(args, 2, "delete <table> <key>")
+                table, key = args
+                print("удалено:", get_ops(table)["delete"](key))
+            case "join":
+                print_rows("join", join(int(args[0]) if args else 7))
+            case "demo":
+                load_demo_data()
+            case _:
+                print(f"Неизвестная команда '{command}'. Наберите help")
+    except ValueError as error:
+        print(f"Ошибка: {error}")
+    return True
 
 
-def print_table(table: str) -> None:
-    for key, inner_table in table.items():
-        print(f"key: {key}")
-        for inner_key, value in inner_table.items():
-            print(f"    {inner_key}: {value}")
+def repl() -> None:
+    """Интерактивный режим работы со слоем данных."""
+    print("Слой доступа к данным. Наберите help.\n")
+    while True:
+        try:
+            line = input("> ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nПока!")
+            return
+        if not run_command(line):
+            print("Пока!")
+            return
 
 
-def table_join() -> dict:
-    """SELECT M.tags, R.error, R.result
-    FROM Message M
-    JOIN Result R ON M.key = R.message
-    WHERE M.datetime >= NOW() - INTERVAL 7 MINUTE;"""
+# --------------------------------------------------------------------------
+# Демонстрация
+# --------------------------------------------------------------------------
 
-    current_time = int(time.time())
 
-    joined = [
-        {**msg, **res}
-        for res in result.values()
-        for msg_id, msg in message.items()
-        if msg_id == res["message"] and res["datetime"] >= current_time - 7 * 60
+def load_demo_data() -> None:
+    """Заполняет таблицы примерами данных."""
+    users.clear()
+    messages.clear()
+    results.clear()
+
+    first = create_user()
+    second = create_user()
+
+    one = create_message(first["key"], "Привет мир", "Первое",
+                         "news", "new")
+    two = create_message(second["key"], "Пока мир", "Второе",
+                         "chat", "new")
+    old = create_message(first["key"], "Старое", "Не попадёт в выборку",
+                         "news", "done")
+    old["datetime"] = now() - 3600
+
+    create_result(one["key"], "Принято", "final", "")
+    create_result(two["key"], "Не обработано", "final", "timeout")
+    create_result(old["key"], "Устаревшая обработка", "final", "")
+
+
+def demo() -> None:
+    """Показывает работу всех операций слоя."""
+    print("=" * 60)
+    print("ДЕМОНСТРАЦИЯ СЛОЯ ДОСТУПА К ДАННЫМ")
+    print("=" * 60)
+
+    load_demo_data()
+    print("Чтение всех записей")
+    print_rows("user", get_all_users())
+    print_rows("message", get_all_messages())
+    print_rows("result", get_all_results())
+
+    print("Создание записи (key и datetime заполняются автоматически)")
+    message = create_message(0, "Новое сообщение", "Создано в демонстрации",
+                             "demo", "new")
+    print("   ", message)
+    create_result(message["key"], "Готово", "final", "")
+
+    print("Удаление записи")
+    print("   удалено:", delete_message(1))
+    print_rows("message", get_all_messages())
+
+    print("Соединение: pi M.tags, R.error, R.result "
+          "(sigma M.datetime >= now - 7 min (M join M.key = R.message R))")
+    print_rows("join за 7 минут", join())
+    print_rows("join за 120 минут", join(120))
+
+    print("Обработка ошибок")
+    cases = [
+        ("неизвестная таблица", lambda: get_ops("unknown")),
+        ("неверный тип ключа", lambda: delete_user("не число")),
+        ("нет пользователя", lambda: create_message(99, "arg", "d", "t", "s")),
+        ("нет сообщения", lambda: create_result(99, "res", "final", "")),
+        ("удаление отсутствующей записи", lambda: delete_result(99)),
     ]
-
-    return_dict = {}
-    for dic in joined:
-        key = dic["key"]
-        return_dict[key] = dic
-
-    return return_dict
+    for title, action in cases:
+        try:
+            action()
+        except ValueError as error:
+            print(f"    {title}: ValueError: {error}")
 
 
-def clear() -> None:
-    os.system("cls")
-
-
-def run():
-    command = input(
-        "1: Создать таблицу\n2: Удалить таблицу\n3: Напечатать таблицу\nВыберите действие: "
-    )
-    clear()
-
-
-
-print("User")
-create_table(user, key=2, datetime=777777777)
-create_table(user, key=1)
-create_table(user, key=3, datetime=333)
-print_table(user)
-print()
-
-print("Message")
-create_table(message, key=1)
-create_table(message, key=2, arg="Привет мир", user=1)
-create_table(message, key=3, arg="Пока мир")
-print_table(message)
-print()
-
-# print("Message")
-# create_table(result, key=1, message=2, error="Ошибка")
-# print_table(result)
-
-# print("\nУдаление данных \n")
-# print("User")
-# delete_table(user, 1)
-# delete_table(user, 2)
-# print_table(user)
-
-"""==================================="""
-
-
-# create_table(user, key=1)
-
-# create_table(message, key=1, arg="Пока", datetime=9999999999999999)
-# create_table(message, key=2, arg="Привет мир", user=1)
-
-# create_table(result, key=1, message=1, error="Ошибка")
-# create_table(result, key=2, message=2, error="Вторая ошибка", result="Результат")
-# create_table(result, key=3, message=2, error="Всё хорошо", datetime=1)
-# print_table(table_join())
-
-
-# if __name__ == "__main__":
-#     clear()
-#     while True:
-#         run()
+if __name__ == "__main__":
+    # demo()
+    repl()
