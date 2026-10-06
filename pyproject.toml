@@ -1,0 +1,10 @@
+# Настройки pytest и coverage.
+# Файл в кодировке UTF-8, поэтому кириллица в комментариях безопасна:
+# coverage читает TOML всегда в UTF-8, а .coveragerc — в кодировке
+# системы, и с не-ASCII содержимым он молча игнорируется.
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true

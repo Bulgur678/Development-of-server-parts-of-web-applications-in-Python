@@ -1,13 +1,22 @@
+"""Протокол RPC по таблице 13: упаковка и распаковка запросов и ответов.
+
+Запрос:  версия протокола (1 байт), код операции (1 байт),
+         размер тела (4 байта), тело в формате JSON.
+Ответ:  размер тела (5 байт), код операции (2 байта),
+         тело в формате JSON.
+
+Порядок байт — от старшего к младшему, поэтому используются
+int.to_bytes и int.from_bytes с порядком "big".
+"""
+
 import json
 import socket
 
 VERSION = 1
 
-# Смещения тел запроса и ответа
 REQUEST_HEADER_SIZE = 6
 RESPONSE_HEADER_SIZE = 7
 
-# Коды операций, общие для клиента и сервера.
 OPCODES = {
     "create_user": 1,
     "delete_user": 2,
@@ -32,9 +41,6 @@ def check_version(version: int) -> None:
         )
 
 
-# Запрос
-
-
 def encode_request(op: int, body: dict) -> bytes:
     """Собирает запрос: версия, код операции, размер тела, тело."""
     data = json.dumps(body).encode("utf-8")
@@ -52,9 +58,6 @@ def decode_request(data: bytes) -> tuple[int, int, dict]:
     return version, op, json.loads(data[6:6 + size].decode("utf-8"))
 
 
-# Ответ
-
-
 def encode_response(op: int, body: dict) -> bytes:
     """Собирает ответ: размер тела, код операции, тело."""
     data = json.dumps(body).encode("utf-8")
@@ -68,9 +71,6 @@ def decode_response(data: bytes) -> tuple[int, dict]:
     size = int.from_bytes(data[0:5], "big")
     op = int.from_bytes(data[5:7], "big")
     return op, json.loads(data[7:7 + size].decode("utf-8"))
-
-
-# Передача по сокету
 
 
 def recv_all(sock: socket.socket, size: int) -> bytes:

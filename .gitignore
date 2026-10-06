@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+journal.log
+.venv/
+venv/
+.coverage
+.coverage.*
+.hypothesis/
+.pytest_cache/

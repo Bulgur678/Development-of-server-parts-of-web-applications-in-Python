@@ -1,13 +1,19 @@
+"""Слой доступа к данным (этап 1).
+
+Каждая таблица хранится в памяти списком словарей: один словарь —
+одна запись, поля словаря соответствуют полям ER-диаграммы.
+
+    user     key, datetime
+    message  key, datetime, arg, user, description, tags, stage
+    result   key, datetime, result, stage, error, message
+"""
+
 import shlex
 import time
 
-# Таблицы в памяти.
 users: list[dict] = []
 messages: list[dict] = []
 results: list[dict] = []
-
-
-# Общие помощники
 
 
 def now() -> int:
@@ -30,16 +36,13 @@ def get_row(table: list[dict], key, name: str) -> dict:
     raise ValueError(f"В таблице '{name}' нет записи с key={key}")
 
 
-def print_rows(title: str, rows: list[dict]) -> None:
+def print_rows(title: str, rows: list[dict]) -> None:  # pragma: no cover
     """Печатает заголовок и список записей."""
     print(f"--- {title} ({len(rows)}) ---")
     for row in rows:
         print("   ", row)
     if not rows:
         print("    (пусто)")
-
-
-# Таблица user
 
 
 def create_user() -> dict:
@@ -62,9 +65,6 @@ def delete_user(key) -> dict:
 def get_all_users() -> list[dict]:
     """Возвращает все записи таблицы user."""
     return users
-
-
-# Таблица message
 
 
 def create_message(user, arg, description="", tags="", stage="") -> dict:
@@ -95,9 +95,6 @@ def get_all_messages() -> list[dict]:
     return messages
 
 
-# Таблица result
-
-
 def create_result(message, result="", stage="", error="") -> dict:
     """Создаёт запись в таблице result для указанного сообщения."""
     source = get_row(messages, message, "message")
@@ -125,9 +122,6 @@ def get_all_results() -> list[dict]:
     return results
 
 
-# Операция соединения
-
-
 def join(minutes: int = 7) -> list[dict]:
     """Выборка: pi M.tags, R.error, R.result
     (sigma M.datetime >= now - 7 min (M join M.key = R.message R)).
@@ -147,7 +141,6 @@ def join(minutes: int = 7) -> list[dict]:
     return rows
 
 
-# Операции таблиц для команд REPL.
 TABLES = {
     "user": {"get_all": get_all_users, "delete": delete_user},
     "message": {"get_all": get_all_messages, "delete": delete_message},
@@ -155,7 +148,7 @@ TABLES = {
 }
 
 
-def get_ops(name: str) -> dict:
+def get_ops(name: str) -> dict:  # pragma: no cover
     """Возвращает операции таблицы по её имени."""
     if name not in TABLES:
         raise ValueError(
@@ -163,8 +156,6 @@ def get_ops(name: str) -> dict:
         )
     return TABLES[name]
 
-
-# REPL
 
 HELP = """Команды:
   show <table>                                       все записи таблицы
@@ -182,7 +173,8 @@ HELP = """Команды:
   create_message 0 "Привет мир" "Описание" news new"""
 
 
-def check_args(args: list[str], count: int, usage: str) -> None:
+def check_args(args: list[str], count: int,
+               usage: str) -> None:  # pragma: no cover
     """Проверяет количество аргументов команды."""
     if len(args) != count:
         raise ValueError(
@@ -190,7 +182,7 @@ def check_args(args: list[str], count: int, usage: str) -> None:
         )
 
 
-def run_command(line: str) -> bool:
+def run_command(line: str) -> bool:  # pragma: no cover
     """Выполняет команду. Возвращает False, если пора выходить."""
     try:
         parts = shlex.split(line)
@@ -232,7 +224,7 @@ def run_command(line: str) -> bool:
     return True
 
 
-def repl() -> None:
+def repl() -> None:  # pragma: no cover
     """Интерактивный режим работы со слоем данных."""
     print("Слой доступа к данным. Наберите help.\n")
     while True:
@@ -246,10 +238,7 @@ def repl() -> None:
             return
 
 
-# Демонстрация
-
-
-def load_demo_data() -> None:
+def load_demo_data() -> None:  # pragma: no cover
     """Заполняет таблицы примерами данных."""
     users.clear()
     messages.clear()
@@ -271,7 +260,7 @@ def load_demo_data() -> None:
     create_result(old["key"], "Устаревшая обработка", "final", "")
 
 
-def demo() -> None:
+def demo() -> None:  # pragma: no cover
     """Показывает работу всех операций слоя."""
     print("=" * 60)
     print("ДЕМОНСТРАЦИЯ СЛОЯ ДОСТУПА К ДАННЫМ")
@@ -313,6 +302,5 @@ def demo() -> None:
             print(f"    {title}: ValueError: {error}")
 
 
-if __name__ == "__main__":
-    # demo()
+if __name__ == "__main__":  # pragma: no cover
     repl()

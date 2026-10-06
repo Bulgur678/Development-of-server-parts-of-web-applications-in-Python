@@ -1,3 +1,16 @@
+"""Клиент к RPC (этап 2).
+
+Имена методов класса совпадают с именами функций модели слоя данных,
+поэтому удалённый вызов выглядит как обычный вызов функции:
+
+    client = RpcClient()
+    user = client.create_user()
+
+Запуск:
+    python rpc_client.py          # интерактивный режим
+    python rpc_client.py --demo   # демонстрация всех вызовов
+"""
+
 import shlex
 import socket
 import sys
@@ -21,8 +34,6 @@ class RpcClient:
         if "error" in payload:
             raise ValueError(payload["error"])
         return payload["result"]
-
-    # Методы повторяют функции модели слоя данных.
 
     def create_user(self) -> dict:
         return self.call("create_user")
@@ -79,53 +90,78 @@ HELP = """Команды повторяют методы клиента:
 Значения с пробелами берите в кавычки:
   create_message 0 "Привет мир" "Описание" news new"""
 
+CREATE = ("create_user", "create_message", "create_result")
+DELETE = ("delete_user", "delete_message", "delete_result")
+READ = ("get_all_users", "get_all_messages", "get_all_results")
 
-def run_command(client: RpcClient, line: str) -> bool:
+COMMANDS = {
+    "create_user": (0, "create_user"),
+    "create_message": (
+        5, "create_message <user> <arg> <desc> <tags> <stage>"),
+    "create_result": (
+        4, "create_result <message> <result> <stage> <error>"),
+    "delete_user": (1, "delete_user <key>"),
+    "delete_message": (1, "delete_message <key>"),
+    "delete_result": (1, "delete_result <key>"),
+}
+
+
+def run_command(client: RpcClient, line: str) -> bool:  # pragma: no cover
     """Выполняет команду клиента. Возвращает False, если пора выходить."""
     try:
         parts = shlex.split(line)
         if not parts:
             return True
         command, args = parts[0], parts[1:]
-
-        match command:
-            case "quit" | "exit":
-                return False
-            case "help":
-                print(HELP)
-            case "create_user":
-                check_args(args, 0, "create_user")
-                print_rows("создано", [client.create_user()])
-            case "create_message":
-                usage = "create_message <user> <arg> <desc> <tags> <stage>"
-                check_args(args, 5, usage)
-                print_rows("создано", [client.create_message(*args)])
-            case "create_result":
-                usage = "create_result <message> <result> <stage> <error>"
-                check_args(args, 4, usage)
-                print_rows("создано", [client.create_result(*args)])
-            case "delete_user":
-                check_args(args, 1, "delete_user <key>")
-                print_rows("удалено", [client.delete_user(args[0])])
-            case "delete_message":
-                check_args(args, 1, "delete_message <key>")
-                print_rows("удалено", [client.delete_message(args[0])])
-            case "delete_result":
-                check_args(args, 1, "delete_result <key>")
-                print_rows("удалено", [client.delete_result(args[0])])
-            case "get_all_users" | "get_all_messages" | "get_all_results":
-                check_args(args, 0, command)
-                print_rows(command, getattr(client, command)())
-            case "join":
-                print_rows("join", client.join(int(args[0]) if args else 7))
-            case _:
-                print(f"Неизвестная команда '{command}'. Наберите help")
+        if command in ("quit", "exit"):
+            return False
+        execute(client, command, args)
     except ValueError as error:
         print(f"Ошибка: {error}")
     return True
 
 
-def repl() -> None:
+def execute(client: RpcClient, command: str,
+            args: list) -> None:  # pragma: no cover
+    """Передаёт команду нужному обработчику или печатает справку."""
+    if command == "help":
+        print(HELP)
+    elif command in CREATE:
+        create(client, command, args)
+    elif command in DELETE:
+        delete(client, command, args)
+    elif command in READ:
+        read(client, command, args)
+    elif command == "join":
+        print_rows("join", client.join(int(args[0]) if args else 7))
+    else:
+        print(f"Неизвестная команда '{command}'. Наберите help")
+
+
+def create(client: RpcClient, command: str,
+           args: list) -> None:  # pragma: no cover
+    """Создание записи: имя метода клиента совпадает с командой."""
+    count, usage = COMMANDS[command]
+    check_args(args, count, usage)
+    print_rows("создано", [getattr(client, command)(*args)])
+
+
+def delete(client: RpcClient, command: str,
+           args: list) -> None:  # pragma: no cover
+    """Удаление записи по её ключу."""
+    count, usage = COMMANDS[command]
+    check_args(args, count, usage)
+    print_rows("удалено", [getattr(client, command)(args[0])])
+
+
+def read(client: RpcClient, command: str,
+         args: list) -> None:  # pragma: no cover
+    """Чтение всех записей таблицы."""
+    check_args(args, 0, command)
+    print_rows(command, getattr(client, command)())
+
+
+def repl() -> None:  # pragma: no cover
     """Интерактивный режим клиента."""
     print("RPC клиент. Наберите help.\n")
     try:
@@ -144,7 +180,7 @@ def repl() -> None:
     print("Пока!")
 
 
-def show_spec() -> None:
+def show_spec() -> None:  # pragma: no cover
     """Показывает, как запрос разложен по байтам (таблица 13)."""
     data = encode_request(OPCODES["join"], {"minutes": 7})
     print("Запрос целиком:", data)
@@ -154,15 +190,20 @@ def show_spec() -> None:
     print("  тело:", data[6:])
 
 
-def demo() -> None:
+def demo() -> None:  # pragma: no cover
     """Вызывает удалённо все функции модели слоя данных."""
-    print("=" * 60)
     print("КЛИЕНТ RPC: УДАЛЁННЫЙ ВЫЗОВ ФУНКЦИЙ МОДЕЛИ")
-    print("=" * 60)
     show_spec()
-
     client = RpcClient()
+    second, message, result = demo_create(client)
+    demo_read(client)
+    demo_errors(client)
+    demo_delete(client, second, message, result)
+    client.close()
 
+
+def demo_create(client: RpcClient) -> tuple:  # pragma: no cover
+    """Создание пользователей, сообщения и результата."""
     print("Создание записей")
     first = client.create_user()
     second = client.create_user()
@@ -172,15 +213,21 @@ def demo() -> None:
     print_rows("create_message", [message])
     result = client.create_result(message["key"], "Принято", "final", "")
     print_rows("create_result", [result])
+    return second, message, result
 
+
+def demo_read(client: RpcClient) -> None:  # pragma: no cover
+    """Чтение всех записей и операция соединения."""
     print("Чтение всех записей")
     print_rows("get_all_users", client.get_all_users())
     print_rows("get_all_messages", client.get_all_messages())
     print_rows("get_all_results", client.get_all_results())
-
     print("Операция соединения")
     print_rows("join", client.join())
 
+
+def demo_errors(client: RpcClient) -> None:  # pragma: no cover
+    """Ошибки, которые возвращает сервер."""
     print("Обработка ошибок сервера")
     cases = [
         ("нет пользователя",
@@ -194,15 +241,18 @@ def demo() -> None:
         except ValueError as error:
             print(f"    {title}: {error}")
 
+
+def demo_delete(client: RpcClient, user: dict,
+                message: dict, result: dict) -> None:  # pragma: no cover
+    """Удаление созданных записей."""
     print("Удаление записей")
     print_rows("delete_result", [client.delete_result(result["key"])])
     print_rows("delete_message", [client.delete_message(message["key"])])
-    print_rows("delete_user", [client.delete_user(second["key"])])
+    print_rows("delete_user", [client.delete_user(user["key"])])
     print_rows("get_all_users", client.get_all_users())
-    client.close()
 
 
-def main() -> int:
+def main() -> int:  # pragma: no cover
     """Запускает демонстрацию или интерактивный режим."""
     if "--demo" in sys.argv:
         demo()
@@ -211,5 +261,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

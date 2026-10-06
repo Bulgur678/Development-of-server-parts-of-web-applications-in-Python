@@ -1,3 +1,9 @@
+"""Однопоточный RPC-сервер над слоем доступа к данным (этап 2).
+
+Клиенты обслуживаются по одному: accept, обработка всех запросов клиента,
+следующий accept. Все запросы записываются в journal.log.
+"""
+
 import datetime
 import json
 import socket
@@ -8,7 +14,6 @@ from proto import NAMES, check_version, recv_request, send_response
 ADDRESS = ("127.0.0.1", 5000)
 JOURNAL = "journal.log"
 
-# Код операции -> функция модели слоя данных.
 FUNCTIONS = {
     "create_user": data_layer.create_user,
     "delete_user": data_layer.delete_user,
